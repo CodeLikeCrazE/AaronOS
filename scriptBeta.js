@@ -1991,13 +1991,14 @@ var Application = function(appIcon, appDesc, handlesLaunchTypes, mainFunction, s
 var repositories = {"repository/repository.json": {}};
 var repositoryIDs = {};
 var installedPackages = {};
+var installedDependencies = [];
 
 function repoSave(){
     lfsave("aos_system/repositories", JSON.stringify(repositories));
     lfsave("aos_system/repositories_installed", JSON.stringify(installedPackages));
 }
 
-function repoLoad(){
+async function repoLoad(){
     try{
         repositories = JSON.parse(lfload("aos_system/repositories") || '{"repository/repository.json": {}}');
     }catch(err){
@@ -2009,6 +2010,38 @@ function repoLoad(){
     }catch(err){
         alert(err);
         installedPackages = {};
+    }
+    for (var x in installedPackages) {
+        for (var i in installedPackages[x]) {
+            if (installedPackages[x][i].dependencies) {
+                for (var z in installedPackages[x][i].dependencies) {
+                    await installDependency(installedPackages[x][i].dependencies[z]);
+                }
+            }
+        }
+    }
+    if(!safeMode){
+        window.setTimeout(apps.bootScript.vars.doBootScript, 1);
+    }else{
+        doLog('Refusing to run BootScripts because SafeMode is on.', "#F00");
+    }
+}
+
+async function installDependency(path) {
+    console.log(path);
+    if (!installedDependencies.includes(path)) {
+        installedDependencies.push(path);
+        var res = await fetch(path);
+        var json = await res.json();
+        apps.bootScript.vars.bootScriptsToEvaluate[json.id] = {
+            BOOT_SCRIPT_CODE: new Function(json.scriptContent)
+        };
+        apps.bootScript.vars.bootScriptsToEvaluate[json.id].BOOT_SCRIPT_CODE();
+        if (json.dependencies) {
+            for (var i in json.dependencies) {
+                await installDependency(json.dependencies[i]);
+            }
+        }
     }
 }
 
@@ -15875,11 +15908,6 @@ c(function(){
                     this.appWindow.closeKeepTask();
                     break;
                 case "USERFILES_DONE":
-                    if(!safeMode){
-                        window.setTimeout(apps.bootScript.vars.doBootScript, 1);
-                    }else{
-                        doLog('Refusing to run BootScripts because SafeMode is on.', "#F00");
-                    }
                     break;
                 case 'shutdown':
                         
